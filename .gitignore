@@ -1,0 +1,6 @@
+.env
+config.yaml
+utbot.db
+utbot.db-*
+__pycache__/
+.pytest_cache/
