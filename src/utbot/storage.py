@@ -71,3 +71,55 @@ class SignalStore:
 
     def close(self) -> None:
         self._conn.close()
+
+    def list_symbols(self) -> list[str]:
+        cur = self._conn.execute(
+            """
+            SELECT DISTINCT symbol
+            FROM signal_events
+            ORDER BY symbol ASC
+            """
+        )
+        return [row[0] for row in cur.fetchall()]
+
+    def list_events(self, symbol: str | None = None, limit: int = 300) -> list[dict]:
+        if limit < 1:
+            return []
+        if symbol:
+            cur = self._conn.execute(
+                """
+                SELECT symbol, timeframe, candle_close_ts_utc, htf_bias, ltf_signal, action, action_reason, created_at_utc
+                FROM signal_events
+                WHERE symbol = ?
+                ORDER BY candle_close_ts_utc DESC
+                LIMIT ?
+                """,
+                (symbol, limit),
+            )
+        else:
+            cur = self._conn.execute(
+                """
+                SELECT symbol, timeframe, candle_close_ts_utc, htf_bias, ltf_signal, action, action_reason, created_at_utc
+                FROM signal_events
+                ORDER BY candle_close_ts_utc DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+
+        rows = cur.fetchall()
+        out = []
+        for row in rows:
+            out.append(
+                {
+                    "symbol": row[0],
+                    "timeframe": row[1],
+                    "candle_close_ts_utc": row[2],
+                    "htf_bias": row[3],
+                    "ltf_signal": row[4],
+                    "action": row[5],
+                    "action_reason": row[6],
+                    "created_at_utc": row[7],
+                }
+            )
+        return out

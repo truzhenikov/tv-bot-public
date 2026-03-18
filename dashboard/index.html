@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>UT Bot Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --ink: #101523;
+        --muted: #5a6477;
+        --card: #ffffff;
+        --line: #d6deea;
+        --up: #169b62;
+        --down: #cc2d2d;
+      }
+      body {
+        margin: 0;
+        font-family: "Manrope", "Segoe UI", sans-serif;
+        background: radial-gradient(circle at 20% 0%, #e8efff 0%, var(--bg) 45%);
+        color: var(--ink);
+      }
+      .wrap {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .card {
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+        box-shadow: 0 8px 24px rgba(16, 21, 35, 0.06);
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+      .controls {
+        display: grid;
+        grid-template-columns: 2fr 1fr 1fr auto;
+        gap: 10px;
+      }
+      input, select, button {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 14px;
+      }
+      button {
+        background: #1e4dd8;
+        color: white;
+        cursor: pointer;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th, td {
+        text-align: left;
+        border-bottom: 1px solid var(--line);
+        padding: 8px;
+        font-size: 13px;
+      }
+      .muted { color: var(--muted); font-size: 13px; }
+      .pill {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 8px;
+        font-size: 12px;
+      }
+      .pill.buy { background: #dcfce7; color: #166534; }
+      .pill.sell { background: #fee2e2; color: #991b1b; }
+      @media (max-width: 900px) {
+        .controls { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap grid">
+      <div class="card">
+        <h2>UT Bot Dashboard</h2>
+        <p class="muted">Показывает свечи и историю сигналов из API на вашем VPS.</p>
+        <div class="controls">
+          <input id="apiBase" placeholder="API Base URL, например http://YOUR_VPS_IP:8787" />
+          <select id="symbol"></select>
+          <select id="timeframe">
+            <option value="5m">5m</option>
+            <option value="15m" selected>15m</option>
+            <option value="1h">1h</option>
+            <option value="1d">1d</option>
+          </select>
+          <button id="refresh">Обновить</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <canvas id="chart" height="120"></canvas>
+      </div>
+
+      <div class="card">
+        <h3>Последние сигналы</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>TS</th>
+              <th>Symbol</th>
+              <th>LTF</th>
+              <th>HTF</th>
+              <th>Action</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <script>
+      const apiBaseInput = document.getElementById('apiBase');
+      const symbolSelect = document.getElementById('symbol');
+      const tfSelect = document.getElementById('timeframe');
+      const eventsBody = document.getElementById('eventsBody');
+      const refreshBtn = document.getElementById('refresh');
+
+      apiBaseInput.value = localStorage.getItem('apiBase') || '';
+      let chart;
+
+      function toUrl(path) {
+        const base = apiBaseInput.value.replace(/\/$/, '');
+        return `${base}${path}`;
+      }
+
+      async function loadSymbols() {
+        const resp = await fetch(toUrl('/api/symbols'));
+        const data = await resp.json();
+        symbolSelect.innerHTML = '';
+        for (const s of data.symbols || []) {
+          const opt = document.createElement('option');
+          opt.value = s;
+          opt.textContent = s;
+          symbolSelect.appendChild(opt);
+        }
+      }
+
+      async function loadCandlesAndEvents() {
+        localStorage.setItem('apiBase', apiBaseInput.value);
+        const symbol = symbolSelect.value;
+        const tf = tfSelect.value;
+        if (!symbol) return;
+
+        const [candlesResp, eventsResp] = await Promise.all([
+          fetch(toUrl(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&limit=250`)),
+          fetch(toUrl(`/api/events?symbol=${encodeURIComponent(symbol)}&limit=200`)),
+        ]);
+
+        const candlesData = await candlesResp.json();
+        const eventsData = await eventsResp.json();
+        const candles = candlesData.candles || [];
+        const events = eventsData.events || [];
+
+        renderChart(candles, events, symbol);
+        renderEvents(events);
+      }
+
+      function renderChart(candles, events, symbol) {
+        const labels = candles.map(c => c.ts_utc.replace('T', ' ').slice(0, 16));
+        const closes = candles.map(c => c.close);
+
+        const signalMap = new Map();
+        for (const ev of events) {
+          signalMap.set(ev.candle_close_ts_utc.slice(0, 16), ev);
+        }
+
+        const buyPoints = [];
+        const sellPoints = [];
+        candles.forEach((c, idx) => {
+          const key = c.ts_utc.slice(0, 16);
+          const ev = signalMap.get(key);
+          if (!ev || !ev.ltf_signal) return;
+          if (ev.ltf_signal === 'LONG') buyPoints.push({x: idx, y: c.close});
+          if (ev.ltf_signal === 'SHORT') sellPoints.push({x: idx, y: c.close});
+        });
+
+        const ctx = document.getElementById('chart');
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels,
+            datasets: [
+              { label: `${symbol} close`, data: closes, borderColor: '#2563eb', pointRadius: 0, tension: 0.1 },
+              { label: 'Buy signal', data: buyPoints, parsing: false, showLine: false, pointRadius: 5, pointBackgroundColor: '#16a34a' },
+              { label: 'Sell signal', data: sellPoints, parsing: false, showLine: false, pointRadius: 5, pointBackgroundColor: '#dc2626' },
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'bottom' } },
+            scales: { x: { ticks: { maxTicksLimit: 10 } } }
+          }
+        });
+      }
+
+      function renderEvents(events) {
+        eventsBody.innerHTML = '';
+        for (const ev of events) {
+          const tr = document.createElement('tr');
+          const ltf = ev.ltf_signal || 'NONE';
+          const ltfClass = ltf === 'LONG' ? 'buy' : ltf === 'SHORT' ? 'sell' : '';
+          tr.innerHTML = `
+            <td>${ev.candle_close_ts_utc || ''}</td>
+            <td>${ev.symbol || ''}</td>
+            <td><span class="pill ${ltfClass}">${ltf}</span></td>
+            <td>${ev.htf_bias || 'NONE'}</td>
+            <td>${ev.action || ''}</td>
+            <td>${ev.action_reason || ''}</td>
+          `;
+          eventsBody.appendChild(tr);
+        }
+      }
+
+      async function boot() {
+        if (!apiBaseInput.value) return;
+        await loadSymbols();
+        await loadCandlesAndEvents();
+      }
+
+      refreshBtn.addEventListener('click', loadCandlesAndEvents);
+      apiBaseInput.addEventListener('change', boot);
+      boot();
+    </script>
+  </body>
+</html>

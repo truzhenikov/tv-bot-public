@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 
 from .config import BotConfig
@@ -42,6 +43,36 @@ def _sleep_until_next_candle_close(timeframe: str, safety_delay_seconds: int = 2
     next_close = ((now_ts // step) + 1) * step
     sleep_for = max(1, next_close - now_ts + safety_delay_seconds)
     time.sleep(sleep_for)
+
+
+def _parse_symbols(default_symbol: str) -> list[str]:
+    raw = os.getenv("BOT_SYMBOLS", "").strip()
+    if not raw:
+        return [default_symbol]
+    symbols = [x.strip().upper() for x in raw.split(",") if x.strip()]
+    uniq: list[str] = []
+    for s in symbols:
+        if s not in uniq:
+            uniq.append(s)
+    if len(uniq) > 5:
+        raise ValueError("BOT_SYMBOLS supports up to 5 symbols")
+    return uniq
+
+
+def _parse_position_sizes(default_size: float) -> dict[str, float]:
+    raw = os.getenv("BOT_POSITION_SIZES", "").strip()
+    if not raw:
+        return {}
+    parsed: dict[str, float] = {}
+    for part in raw.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        if ":" not in item:
+            raise ValueError("BOT_POSITION_SIZES format: SYMBOL:SIZE,SYMBOL:SIZE")
+        symbol, size = item.split(":", 1)
+        parsed[symbol.strip().upper()] = float(size)
+    return parsed
 
 
 def load_config_from_env() -> BotConfig:
@@ -92,21 +123,27 @@ def make_notifier() -> Notifier:
     return TelegramNotifier(bot_token=bot_token, chat_id=chat_id)
 
 
-def _run_cycle(config: BotConfig, exchange, store: SignalStore, strategy: UTBotStrategy, notifier: Notifier) -> int:
-    htf_candles = exchange.fetch_recent_candles(config.symbol, config.htf_timeframe, config.htf_lookback)
-    ltf_candles = exchange.fetch_recent_candles(config.symbol, config.ltf_timeframe, config.ltf_lookback)
+def _run_cycle_for_symbol(
+    symbol_config: BotConfig,
+    exchange,
+    store: SignalStore,
+    strategy: UTBotStrategy,
+    notifier: Notifier,
+) -> int:
+    htf_candles = exchange.fetch_recent_candles(symbol_config.symbol, symbol_config.htf_timeframe, symbol_config.htf_lookback)
+    ltf_candles = exchange.fetch_recent_candles(symbol_config.symbol, symbol_config.ltf_timeframe, symbol_config.ltf_lookback)
 
     htf_bias = last_signal_bias(strategy.evaluate(htf_candles))
     bias_text = htf_bias.value if htf_bias else "UNDEFINED"
     notifier.send(
-        f"Направление {config.htf_timeframe} определено: {bias_text} "
-        f"(по последним {config.htf_lookback} свечам)"
+        f"[{symbol_config.symbol}] Направление {symbol_config.htf_timeframe}: {bias_text} "
+        f"(lookback={symbol_config.htf_lookback})"
     )
 
-    engine = StrategyEngine(config=config, exchange=exchange, store=store, strategy=strategy)
+    engine = StrategyEngine(config=symbol_config, exchange=exchange, store=store, strategy=strategy)
     result = engine.run(htf_candles=htf_candles, ltf_candles=ltf_candles)
     if not result.events:
-        notifier.send("Событий по последней LTF-свече нет.")
+        notifier.send(f"[{symbol_config.symbol}] Событий по последней LTF-свече нет.")
     for event in result.events:
         print(event)
         notifier.send(
@@ -124,52 +161,73 @@ def _run_cycle(config: BotConfig, exchange, store: SignalStore, strategy: UTBotS
     return len(result.events)
 
 
+def _build_symbol_configs(base: BotConfig) -> list[BotConfig]:
+    symbols = _parse_symbols(base.symbol)
+    sizes = _parse_position_sizes(base.position_size)
+    out: list[BotConfig] = []
+    for symbol in symbols:
+        size = sizes.get(symbol, base.position_size)
+        out.append(replace(base, symbol=symbol, position_size=size))
+    return out
+
+
 def run_once() -> None:
-    config = load_config_from_env()
+    base_config = load_config_from_env()
     notifier = make_notifier()
-    exchange = make_exchange_adapter(config.dry_run)
+    exchange = make_exchange_adapter(base_config.dry_run)
     store = SignalStore(os.getenv("BOT_DB_PATH", "utbot.db"))
     strategy = UTBotStrategy(
-        key_value=config.ut_key_value,
-        atr_period=config.ut_atr_period,
-        use_heikin=config.ut_use_heikin,
+        key_value=base_config.ut_key_value,
+        atr_period=base_config.ut_atr_period,
+        use_heikin=base_config.ut_use_heikin,
     )
 
-    # Validate symbol early to avoid strategy/execution loop with invalid instrument.
-    exchange.get_symbol_meta(config.symbol)
+    symbol_configs = _build_symbol_configs(base_config)
+    symbol_list = ", ".join(c.symbol for c in symbol_configs)
+
+    for cfg in symbol_configs:
+        exchange.get_symbol_meta(cfg.symbol)
+
     notifier.send(
         "\n".join(
             [
                 "UT Bot запущен",
-                f"Символ: {config.symbol}",
-                f"HTF/LTF: {config.htf_timeframe}/{config.ltf_timeframe}",
-                f"Dry-run: {config.dry_run}",
+                f"Символы: {symbol_list}",
+                f"HTF/LTF: {base_config.htf_timeframe}/{base_config.ltf_timeframe}",
+                f"Dry-run: {base_config.dry_run}",
+                f"Мультивалютный режим: {len(symbol_configs)} инструмент(а)",
             ]
         )
     )
 
-    _run_cycle(config=config, exchange=exchange, store=store, strategy=strategy, notifier=notifier)
+    for cfg in symbol_configs:
+        _run_cycle_for_symbol(symbol_config=cfg, exchange=exchange, store=store, strategy=strategy, notifier=notifier)
 
 
 def run_forever() -> None:
-    config = load_config_from_env()
+    base_config = load_config_from_env()
     notifier = make_notifier()
-    exchange = make_exchange_adapter(config.dry_run)
+    exchange = make_exchange_adapter(base_config.dry_run)
     store = SignalStore(os.getenv("BOT_DB_PATH", "utbot.db"))
     strategy = UTBotStrategy(
-        key_value=config.ut_key_value,
-        atr_period=config.ut_atr_period,
-        use_heikin=config.ut_use_heikin,
+        key_value=base_config.ut_key_value,
+        atr_period=base_config.ut_atr_period,
+        use_heikin=base_config.ut_use_heikin,
     )
 
-    exchange.get_symbol_meta(config.symbol)
+    symbol_configs = _build_symbol_configs(base_config)
+    symbol_list = ", ".join(c.symbol for c in symbol_configs)
+
+    for cfg in symbol_configs:
+        exchange.get_symbol_meta(cfg.symbol)
+
     notifier.send(
         "\n".join(
             [
                 "UT Bot запущен (loop)",
-                f"Символ: {config.symbol}",
-                f"HTF/LTF: {config.htf_timeframe}/{config.ltf_timeframe}",
-                f"Dry-run: {config.dry_run}",
+                f"Символы: {symbol_list}",
+                f"HTF/LTF: {base_config.htf_timeframe}/{base_config.ltf_timeframe}",
+                f"Dry-run: {base_config.dry_run}",
                 "Режим: непрерывный",
             ]
         )
@@ -177,14 +235,15 @@ def run_forever() -> None:
 
     while True:
         try:
-            _run_cycle(config=config, exchange=exchange, store=store, strategy=strategy, notifier=notifier)
+            for cfg in symbol_configs:
+                _run_cycle_for_symbol(symbol_config=cfg, exchange=exchange, store=store, strategy=strategy, notifier=notifier)
         except Exception as exc:
             now = datetime.now(tz=timezone.utc).isoformat()
             notifier.send(f"Ошибка цикла: {exc} | {now}")
             time.sleep(20)
             continue
 
-        _sleep_until_next_candle_close(config.ltf_timeframe)
+        _sleep_until_next_candle_close(base_config.ltf_timeframe)
 
 
 def main() -> None:

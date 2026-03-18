@@ -10,6 +10,8 @@ Local UT Bot strategy engine with multi-timeframe filtering:
 - `BOT_DRY_RUN` (`true`/`false`)
 - `BOT_RUN_MODE` (`once` или `loop`, для 24/7 используйте `loop`)
 - `BOT_SYMBOL` (default `SOLUSDT`)
+- `BOT_SYMBOLS` (опционально, CSV: `HYPEUSDT,SOLUSDT`; до 5 символов)
+- `BOT_POSITION_SIZES` (опционально, per-symbol: `HYPEUSDT:50,SOLUSDT:20`)
 - `BOT_HTF_TIMEFRAME` (default `1d`)
 - `BOT_LTF_TIMEFRAME` (default `15m`)
 - `BOT_HTF_LOOKBACK` (default `15`, для определения HTF bias перед стартом)
@@ -46,3 +48,28 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 - `InMemoryBitmartPerpAdapter` is used in dry-run mode.
 - `BitmartPerpRestAdapter` is enabled when `BOT_DRY_RUN=false` and credentials are set.
+
+
+## Dashboard API (для интерфейса)
+
+Запуск API на VPS:
+
+```bash
+set -a && source .env && set +a
+PYTHONPATH=src python3 -m utbot.api_server
+```
+
+По умолчанию API слушает `0.0.0.0:8787`.
+
+Эндпоинты:
+- `/api/health`
+- `/api/symbols`
+- `/api/events?symbol=HYPEUSDT&limit=300`
+- `/api/candles?symbol=HYPEUSDT&timeframe=15m&limit=250`
+
+## Vercel Dashboard
+
+Папка `dashboard/` — статический фронтенд.
+
+- Деплойте папку `dashboard` в Vercel как Static Site.
+- В интерфейсе задайте `API Base URL` вашего VPS, например `http://YOUR_SERVER_IP:8787`.
