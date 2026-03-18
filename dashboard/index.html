@@ -3,235 +3,309 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>UT Bot Dashboard</title>
+    <title>UT Bot Live Monitor</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       :root {
-        --bg: #f5f7fb;
-        --ink: #101523;
-        --muted: #5a6477;
+        --bg: #f3f6fc;
+        --ink: #0f172a;
+        --muted: #64748b;
         --card: #ffffff;
-        --line: #d6deea;
-        --up: #169b62;
-        --down: #cc2d2d;
+        --line: #dbe4f0;
       }
+      * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: "Manrope", "Segoe UI", sans-serif;
-        background: radial-gradient(circle at 20% 0%, #e8efff 0%, var(--bg) 45%);
         color: var(--ink);
+        background: radial-gradient(circle at 10% -10%, #dbeafe 0%, var(--bg) 50%);
       }
       .wrap {
-        max-width: 1200px;
+        max-width: 1320px;
         margin: 0 auto;
         padding: 20px;
       }
-      .card {
+      .panel {
         background: var(--card);
         border: 1px solid var(--line);
         border-radius: 14px;
-        padding: 16px;
-        box-shadow: 0 8px 24px rgba(16, 21, 35, 0.06);
+        padding: 14px;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
       }
-      .grid {
+      .top {
         display: grid;
-        grid-template-columns: 1fr;
-        gap: 16px;
-      }
-      .controls {
-        display: grid;
-        grid-template-columns: 2fr 1fr 1fr auto;
+        grid-template-columns: 1fr 180px 140px;
         gap: 10px;
+        align-items: center;
       }
-      input, select, button {
+      input, select {
         border: 1px solid var(--line);
         border-radius: 10px;
         padding: 10px 12px;
         font-size: 14px;
-      }
-      button {
-        background: #1e4dd8;
-        color: white;
-        cursor: pointer;
-      }
-      table {
         width: 100%;
-        border-collapse: collapse;
-      }
-      th, td {
-        text-align: left;
-        border-bottom: 1px solid var(--line);
-        padding: 8px;
-        font-size: 13px;
       }
       .muted { color: var(--muted); font-size: 13px; }
+      .cards {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+        gap: 14px;
+      }
+      .symbol-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 8px;
+      }
+      .symbol-title h3 {
+        margin: 0;
+        font-size: 18px;
+      }
+      .stats {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .chart-box { height: 220px; }
+      .events {
+        margin-top: 8px;
+        max-height: 180px;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+      }
+      table { width: 100%; border-collapse: collapse; }
+      th, td {
+        text-align: left;
+        font-size: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 6px 8px;
+      }
       .pill {
         display: inline-block;
-        padding: 4px 8px;
-        border-radius: 8px;
-        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
       }
-      .pill.buy { background: #dcfce7; color: #166534; }
-      .pill.sell { background: #fee2e2; color: #991b1b; }
+      .buy { background: #dcfce7; color: #166534; }
+      .sell { background: #fee2e2; color: #991b1b; }
+      .none { background: #e2e8f0; color: #334155; }
       @media (max-width: 900px) {
-        .controls { grid-template-columns: 1fr; }
+        .top { grid-template-columns: 1fr; }
       }
     </style>
   </head>
   <body>
-    <div class="wrap grid">
-      <div class="card">
-        <h2>UT Bot Dashboard</h2>
-        <p class="muted">Показывает свечи и историю сигналов из API на вашем VPS.</p>
-        <div class="controls">
+    <div class="wrap">
+      <div class="panel">
+        <h2 style="margin:0 0 6px 0">UT Bot Live Monitor</h2>
+        <p class="muted" style="margin:0 0 12px 0">Только отображение: live-графики всех включенных валют и их сигналы.</p>
+        <div class="top">
           <input id="apiBase" placeholder="API Base URL, например http://YOUR_VPS_IP:8787" />
-          <select id="symbol"></select>
           <select id="timeframe">
             <option value="5m">5m</option>
             <option value="15m" selected>15m</option>
             <option value="1h">1h</option>
             <option value="1d">1d</option>
           </select>
-          <button id="refresh">Обновить</button>
+          <select id="refreshSec">
+            <option value="10">10s</option>
+            <option value="20">20s</option>
+            <option value="30" selected>30s</option>
+            <option value="60">60s</option>
+          </select>
         </div>
+        <p class="muted" id="status" style="margin:10px 0 0 0">Ожидание API URL</p>
       </div>
 
-      <div class="card">
-        <canvas id="chart" height="120"></canvas>
-      </div>
-
-      <div class="card">
-        <h3>Последние сигналы</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>TS</th>
-              <th>Symbol</th>
-              <th>LTF</th>
-              <th>HTF</th>
-              <th>Action</th>
-              <th>Reason</th>
-            </tr>
-          </thead>
-          <tbody id="eventsBody"></tbody>
-        </table>
-      </div>
+      <div id="cards" class="cards"></div>
     </div>
 
     <script>
       const apiBaseInput = document.getElementById('apiBase');
-      const symbolSelect = document.getElementById('symbol');
-      const tfSelect = document.getElementById('timeframe');
-      const eventsBody = document.getElementById('eventsBody');
-      const refreshBtn = document.getElementById('refresh');
+      const timeframeEl = document.getElementById('timeframe');
+      const refreshSecEl = document.getElementById('refreshSec');
+      const cardsEl = document.getElementById('cards');
+      const statusEl = document.getElementById('status');
 
       apiBaseInput.value = localStorage.getItem('apiBase') || '';
-      let chart;
+      timeframeEl.value = localStorage.getItem('dashboardTf') || '15m';
+      refreshSecEl.value = localStorage.getItem('dashboardRefresh') || '30';
+
+      const charts = new Map();
+      let timer = null;
 
       function toUrl(path) {
-        const base = apiBaseInput.value.replace(/\/$/, '');
+        const base = apiBaseInput.value.trim().replace(/\/$/, '');
         return `${base}${path}`;
       }
 
-      async function loadSymbols() {
-        const resp = await fetch(toUrl('/api/symbols'));
-        const data = await resp.json();
-        symbolSelect.innerHTML = '';
-        for (const s of data.symbols || []) {
-          const opt = document.createElement('option');
-          opt.value = s;
-          opt.textContent = s;
-          symbolSelect.appendChild(opt);
+      function escapeHtml(text) {
+        return String(text || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#039;');
+      }
+
+      async function fetchJson(url) {
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          throw new Error(`${resp.status} ${resp.statusText}`);
         }
+        return await resp.json();
       }
 
-      async function loadCandlesAndEvents() {
-        localStorage.setItem('apiBase', apiBaseInput.value);
-        const symbol = symbolSelect.value;
-        const tf = tfSelect.value;
-        if (!symbol) return;
+      function buildCard(symbol) {
+        const id = `card-${symbol}`;
+        let card = document.getElementById(id);
+        if (card) return card;
 
-        const [candlesResp, eventsResp] = await Promise.all([
-          fetch(toUrl(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&limit=250`)),
-          fetch(toUrl(`/api/events?symbol=${encodeURIComponent(symbol)}&limit=200`)),
-        ]);
-
-        const candlesData = await candlesResp.json();
-        const eventsData = await eventsResp.json();
-        const candles = candlesData.candles || [];
-        const events = eventsData.events || [];
-
-        renderChart(candles, events, symbol);
-        renderEvents(events);
+        card = document.createElement('div');
+        card.id = id;
+        card.className = 'panel';
+        card.innerHTML = `
+          <div class="symbol-title">
+            <h3>${escapeHtml(symbol)}</h3>
+            <span class="stats" id="stats-${symbol}">загрузка...</span>
+          </div>
+          <div class="chart-box"><canvas id="chart-${symbol}"></canvas></div>
+          <div class="events">
+            <table>
+              <thead>
+                <tr>
+                  <th>TS</th>
+                  <th>LTF</th>
+                  <th>HTF</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="events-${symbol}"></tbody>
+            </table>
+          </div>
+        `;
+        cardsEl.appendChild(card);
+        return card;
       }
 
-      function renderChart(candles, events, symbol) {
-        const labels = candles.map(c => c.ts_utc.replace('T', ' ').slice(0, 16));
+      function renderChart(symbol, candles, events) {
+        const ctx = document.getElementById(`chart-${symbol}`);
+        if (!ctx) return;
+
+        const labels = candles.map(c => (c.ts_utc || '').replace('T', ' ').slice(0, 16));
         const closes = candles.map(c => c.close);
 
-        const signalMap = new Map();
+        const signalByTs = new Map();
         for (const ev of events) {
-          signalMap.set(ev.candle_close_ts_utc.slice(0, 16), ev);
+          signalByTs.set((ev.candle_close_ts_utc || '').slice(0, 16), ev);
         }
 
         const buyPoints = [];
         const sellPoints = [];
-        candles.forEach((c, idx) => {
-          const key = c.ts_utc.slice(0, 16);
-          const ev = signalMap.get(key);
+        candles.forEach((c, i) => {
+          const key = (c.ts_utc || '').slice(0, 16);
+          const ev = signalByTs.get(key);
           if (!ev || !ev.ltf_signal) return;
-          if (ev.ltf_signal === 'LONG') buyPoints.push({x: idx, y: c.close});
-          if (ev.ltf_signal === 'SHORT') sellPoints.push({x: idx, y: c.close});
+          if (ev.ltf_signal === 'LONG') buyPoints.push({ x: i, y: c.close });
+          if (ev.ltf_signal === 'SHORT') sellPoints.push({ x: i, y: c.close });
         });
 
-        const ctx = document.getElementById('chart');
-        if (chart) chart.destroy();
-        chart = new Chart(ctx, {
+        if (charts.has(symbol)) charts.get(symbol).destroy();
+        const ch = new Chart(ctx, {
           type: 'line',
           data: {
             labels,
             datasets: [
-              { label: `${symbol} close`, data: closes, borderColor: '#2563eb', pointRadius: 0, tension: 0.1 },
-              { label: 'Buy signal', data: buyPoints, parsing: false, showLine: false, pointRadius: 5, pointBackgroundColor: '#16a34a' },
-              { label: 'Sell signal', data: sellPoints, parsing: false, showLine: false, pointRadius: 5, pointBackgroundColor: '#dc2626' },
+              { label: `${symbol} close`, data: closes, borderColor: '#2563eb', pointRadius: 0, tension: 0.15 },
+              { label: 'Buy', data: buyPoints, parsing: false, showLine: false, pointRadius: 4, pointBackgroundColor: '#16a34a' },
+              { label: 'Sell', data: sellPoints, parsing: false, showLine: false, pointRadius: 4, pointBackgroundColor: '#dc2626' }
             ]
           },
           options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: { legend: { position: 'bottom' } },
-            scales: { x: { ticks: { maxTicksLimit: 10 } } }
+            scales: { x: { ticks: { maxTicksLimit: 8 } } }
           }
         });
+        charts.set(symbol, ch);
       }
 
-      function renderEvents(events) {
-        eventsBody.innerHTML = '';
-        for (const ev of events) {
-          const tr = document.createElement('tr');
+      function renderEvents(symbol, events) {
+        const tbody = document.getElementById(`events-${symbol}`);
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        for (const ev of events.slice(0, 12)) {
           const ltf = ev.ltf_signal || 'NONE';
-          const ltfClass = ltf === 'LONG' ? 'buy' : ltf === 'SHORT' ? 'sell' : '';
+          const cls = ltf === 'LONG' ? 'buy' : ltf === 'SHORT' ? 'sell' : 'none';
+          const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td>${ev.candle_close_ts_utc || ''}</td>
-            <td>${ev.symbol || ''}</td>
-            <td><span class="pill ${ltfClass}">${ltf}</span></td>
-            <td>${ev.htf_bias || 'NONE'}</td>
-            <td>${ev.action || ''}</td>
-            <td>${ev.action_reason || ''}</td>
+            <td>${escapeHtml((ev.candle_close_ts_utc || '').replace('T', ' ').slice(0, 16))}</td>
+            <td><span class="pill ${cls}">${escapeHtml(ltf)}</span></td>
+            <td>${escapeHtml(ev.htf_bias || 'NONE')}</td>
+            <td>${escapeHtml(ev.action || '')}</td>
           `;
-          eventsBody.appendChild(tr);
+          tbody.appendChild(tr);
         }
       }
 
-      async function boot() {
-        if (!apiBaseInput.value) return;
-        await loadSymbols();
-        await loadCandlesAndEvents();
+      async function loadSymbol(symbol) {
+        const tf = timeframeEl.value;
+        const [candlesData, eventsData] = await Promise.all([
+          fetchJson(toUrl(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&limit=250`)),
+          fetchJson(toUrl(`/api/events?symbol=${encodeURIComponent(symbol)}&limit=150`))
+        ]);
+
+        const candles = candlesData.candles || [];
+        const events = eventsData.events || [];
+        renderChart(symbol, candles, events);
+        renderEvents(symbol, events);
+
+        const last = candles[candles.length - 1];
+        const lastClose = last ? Number(last.close).toFixed(4) : 'n/a';
+        const statsEl = document.getElementById(`stats-${symbol}`);
+        if (statsEl) {
+          statsEl.textContent = `TF ${tf} | candles ${candles.length} | signals ${events.length} | last ${lastClose}`;
+        }
       }
 
-      refreshBtn.addEventListener('click', loadCandlesAndEvents);
-      apiBaseInput.addEventListener('change', boot);
-      boot();
+      async function refreshAll() {
+        const base = apiBaseInput.value.trim();
+        if (!base) {
+          statusEl.textContent = 'Укажите API Base URL';
+          return;
+        }
+        localStorage.setItem('apiBase', base);
+        localStorage.setItem('dashboardTf', timeframeEl.value);
+        localStorage.setItem('dashboardRefresh', refreshSecEl.value);
+
+        statusEl.textContent = 'Обновление...';
+        try {
+          const symbolsData = await fetchJson(toUrl('/api/symbols'));
+          const symbols = symbolsData.symbols || [];
+          cardsEl.innerHTML = '';
+          for (const s of symbols) buildCard(s);
+          await Promise.all(symbols.map(loadSymbol));
+          statusEl.textContent = `Обновлено: ${new Date().toLocaleTimeString()} | symbols: ${symbols.join(', ') || 'none'}`;
+        } catch (e) {
+          statusEl.textContent = `Ошибка: ${e.message}`;
+        }
+      }
+
+      function resetTimer() {
+        if (timer) clearInterval(timer);
+        const sec = Number(refreshSecEl.value || '30');
+        timer = setInterval(refreshAll, sec * 1000);
+      }
+
+      apiBaseInput.addEventListener('change', () => { refreshAll(); resetTimer(); });
+      timeframeEl.addEventListener('change', refreshAll);
+      refreshSecEl.addEventListener('change', resetTimer);
+
+      refreshAll();
+      resetTimer();
     </script>
   </body>
 </html>
