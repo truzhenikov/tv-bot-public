@@ -18,8 +18,8 @@ Local UT Bot strategy engine with multi-timeframe filtering:
 - `BOT_LTF_LOOKBACK` (default `300`, окно расчета сигнала LTF)
 - `BOT_POSITION_SIZE` (размер позиции в USDT, default `50`)
 - `BOT_ORDER_TYPE` (default `market`)
-- `BOT_UT_KEY_VALUE` (default `2`)
-- `BOT_UT_ATR_PERIOD` (default `11`)
+- `UT Key Value` фиксирован в коде: `2`
+- `UT ATR Period` фиксирован в коде: `11`
 - `BOT_UT_USE_HEIKIN` (default `false`)
 - `BOT_DB_PATH` (default `utbot.db`)
 - `TG_ENABLED` (default `false`, включить Telegram-уведомления)
