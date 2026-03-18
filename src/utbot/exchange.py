@@ -179,7 +179,7 @@ class BitmartPerpRestAdapter(ExchangeAdapter):
         return candles[-limit:]
 
     def place_market_order(self, symbol: str, side: Direction, size: float) -> str:
-        contracts = _contracts_from_size(size)
+        contracts = self._contracts_from_usdt_notional(symbol=symbol, usdt_notional=size)
         side_code = 1 if side == Direction.LONG else 4
         body = {
             "symbol": symbol,
@@ -191,6 +191,28 @@ class BitmartPerpRestAdapter(ExchangeAdapter):
         response = self._request("POST", "/contract/private/submit-order", body=body, signed=True)
         data = response.get("data", {})
         return str(data.get("order_id", ""))
+
+    def _contracts_from_usdt_notional(self, symbol: str, usdt_notional: float) -> int:
+        if usdt_notional <= 0:
+            raise ValueError("position size (USDT) must be > 0")
+
+        meta = self.get_symbol_meta(symbol)
+        contract_size = float(meta.get("contract_size", "0"))
+        if contract_size <= 0:
+            raise BitmartAPIError(f"Invalid contract_size for {symbol}: {meta.get('contract_size')}")
+
+        last_price_raw = meta.get("last_price") or meta.get("index_price")
+        if last_price_raw in (None, "", "0", "0.0"):
+            raise BitmartAPIError(f"Invalid last/index price for {symbol}")
+        last_price = float(last_price_raw)
+        if last_price <= 0:
+            raise BitmartAPIError(f"Invalid last/index price for {symbol}: {last_price_raw}")
+
+        one_contract_notional = contract_size * last_price
+        contracts = int(usdt_notional / one_contract_notional)
+        if contracts < 1:
+            contracts = 1
+        return contracts
 
     def close_position(self, symbol: str) -> str | None:
         current = self.get_position(symbol)

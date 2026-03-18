@@ -108,6 +108,25 @@ class ExchangeTests(unittest.TestCase):
         self.assertEqual(candles[0].ts_utc, datetime.fromtimestamp(1772064000, tz=timezone.utc))
         self.assertEqual(candles[1].close, 11.5)
 
+    def test_place_order_converts_usdt_to_contracts(self) -> None:
+        calls = []
+
+        def fake_request(method, path, params=None, body=None, keyed=False, signed=False):
+            calls.append({"method": method, "path": path, "params": params, "body": body, "keyed": keyed, "signed": signed})
+            if path.endswith("/details"):
+                return {
+                    "code": 1000,
+                    "data": {"symbols": [{"symbol": "HYPEUSDT", "contract_size": "0.01", "last_price": "40"}]},
+                }
+            return {"code": 1000, "data": {"order_id": "ord1"}}
+
+        with patch.object(self.adapter, "_request", side_effect=fake_request):
+            order_id = self.adapter.place_market_order("HYPEUSDT", Direction.LONG, 50)
+
+        self.assertEqual(order_id, "ord1")
+        # 1 contract ~= 0.01 * 40 = 0.4 USDT; 50 USDT => 125 contracts.
+        self.assertEqual(calls[-1]["body"]["size"], 125)
+
 
 if __name__ == "__main__":
     unittest.main()
