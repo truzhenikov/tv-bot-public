@@ -20,11 +20,7 @@
         color: var(--ink);
         background: radial-gradient(circle at 10% -10%, #dbeafe 0%, var(--bg) 50%);
       }
-      .wrap {
-        max-width: 1320px;
-        margin: 0 auto;
-        padding: 20px;
-      }
+      .wrap { max-width: 1320px; margin: 0 auto; padding: 20px; }
       .panel {
         background: var(--card);
         border: 1px solid var(--line);
@@ -34,11 +30,11 @@
       }
       .top {
         display: grid;
-        grid-template-columns: 1fr 180px 140px;
+        grid-template-columns: 180px 140px;
         gap: 10px;
         align-items: center;
       }
-      input, select {
+      select {
         border: 1px solid var(--line);
         border-radius: 10px;
         padding: 10px 12px;
@@ -58,14 +54,8 @@
         align-items: baseline;
         margin-bottom: 8px;
       }
-      .symbol-title h3 {
-        margin: 0;
-        font-size: 18px;
-      }
-      .stats {
-        font-size: 12px;
-        color: var(--muted);
-      }
+      .symbol-title h3 { margin: 0; font-size: 18px; }
+      .stats { font-size: 12px; color: var(--muted); }
       .chart-box { height: 220px; }
       .events {
         margin-top: 8px;
@@ -90,9 +80,7 @@
       .buy { background: #dcfce7; color: #166534; }
       .sell { background: #fee2e2; color: #991b1b; }
       .none { background: #e2e8f0; color: #334155; }
-      @media (max-width: 900px) {
-        .top { grid-template-columns: 1fr; }
-      }
+      @media (max-width: 900px) { .top { grid-template-columns: 1fr; } }
     </style>
   </head>
   <body>
@@ -101,7 +89,6 @@
         <h2 style="margin:0 0 6px 0">UT Bot Live Monitor</h2>
         <p class="muted" style="margin:0 0 12px 0">Только отображение: live-графики всех включенных валют и их сигналы.</p>
         <div class="top">
-          <input id="apiBase" placeholder="API Base URL, например http://YOUR_VPS_IP:8787" />
           <select id="timeframe">
             <option value="5m">5m</option>
             <option value="15m" selected>15m</option>
@@ -115,30 +102,25 @@
             <option value="60">60s</option>
           </select>
         </div>
-        <p class="muted" id="status" style="margin:10px 0 0 0">Ожидание API URL</p>
+        <p class="muted" id="status" style="margin:10px 0 0 0">API: через встроенный proxy /api</p>
       </div>
 
       <div id="cards" class="cards"></div>
     </div>
 
     <script>
-      const apiBaseInput = document.getElementById('apiBase');
       const timeframeEl = document.getElementById('timeframe');
       const refreshSecEl = document.getElementById('refreshSec');
       const cardsEl = document.getElementById('cards');
       const statusEl = document.getElementById('status');
 
-      apiBaseInput.value = localStorage.getItem('apiBase') || '';
       timeframeEl.value = localStorage.getItem('dashboardTf') || '15m';
       refreshSecEl.value = localStorage.getItem('dashboardRefresh') || '30';
 
       const charts = new Map();
       let timer = null;
 
-      function toUrl(path) {
-        const base = apiBaseInput.value.trim().replace(/\/$/, '');
-        return `${base}${path}`;
-      }
+      function toUrl(path) { return path; }
 
       function escapeHtml(text) {
         return String(text || '')
@@ -151,9 +133,7 @@
 
       async function fetchJson(url) {
         const resp = await fetch(url);
-        if (!resp.ok) {
-          throw new Error(`${resp.status} ${resp.statusText}`);
-        }
+        if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
         return await resp.json();
       }
 
@@ -174,17 +154,11 @@
           <div class="events">
             <table>
               <thead>
-                <tr>
-                  <th>TS</th>
-                  <th>LTF</th>
-                  <th>HTF</th>
-                  <th>Action</th>
-                </tr>
+                <tr><th>TS</th><th>LTF</th><th>HTF</th><th>Action</th></tr>
               </thead>
               <tbody id="events-${symbol}"></tbody>
             </table>
-          </div>
-        `;
+          </div>`;
         cardsEl.appendChild(card);
         return card;
       }
@@ -197,15 +171,12 @@
         const closes = candles.map(c => c.close);
 
         const signalByTs = new Map();
-        for (const ev of events) {
-          signalByTs.set((ev.candle_close_ts_utc || '').slice(0, 16), ev);
-        }
+        for (const ev of events) signalByTs.set((ev.candle_close_ts_utc || '').slice(0, 16), ev);
 
         const buyPoints = [];
         const sellPoints = [];
         candles.forEach((c, i) => {
-          const key = (c.ts_utc || '').slice(0, 16);
-          const ev = signalByTs.get(key);
+          const ev = signalByTs.get((c.ts_utc || '').slice(0, 16));
           if (!ev || !ev.ltf_signal) return;
           if (ev.ltf_signal === 'LONG') buyPoints.push({ x: i, y: c.close });
           if (ev.ltf_signal === 'SHORT') sellPoints.push({ x: i, y: c.close });
@@ -222,12 +193,7 @@
               { label: 'Sell', data: sellPoints, parsing: false, showLine: false, pointRadius: 4, pointBackgroundColor: '#dc2626' }
             ]
           },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { position: 'bottom' } },
-            scales: { x: { ticks: { maxTicksLimit: 8 } } }
-          }
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { x: { ticks: { maxTicksLimit: 8 } } } }
         });
         charts.set(symbol, ch);
       }
@@ -236,8 +202,7 @@
         const tbody = document.getElementById(`events-${symbol}`);
         if (!tbody) return;
         tbody.innerHTML = '';
-
-        for (const ev of events.slice(0, 12)) {
+        for (const ev of events.slice(0, 200)) {
           const ltf = ev.ltf_signal || 'NONE';
           const cls = ltf === 'LONG' ? 'buy' : ltf === 'SHORT' ? 'sell' : 'none';
           const tr = document.createElement('tr');
@@ -245,8 +210,7 @@
             <td>${escapeHtml((ev.candle_close_ts_utc || '').replace('T', ' ').slice(0, 16))}</td>
             <td><span class="pill ${cls}">${escapeHtml(ltf)}</span></td>
             <td>${escapeHtml(ev.htf_bias || 'NONE')}</td>
-            <td>${escapeHtml(ev.action || '')}</td>
-          `;
+            <td>${escapeHtml(ev.action || '')}</td>`;
           tbody.appendChild(tr);
         }
       }
@@ -254,33 +218,22 @@
       async function loadSymbol(symbol) {
         const tf = timeframeEl.value;
         const [candlesData, eventsData] = await Promise.all([
-          fetchJson(toUrl(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&limit=250`)),
-          fetchJson(toUrl(`/api/events?symbol=${encodeURIComponent(symbol)}&limit=150`))
+          fetchJson(toUrl(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(tf)}&limit=300`)),
+          fetchJson(toUrl(`/api/events?symbol=${encodeURIComponent(symbol)}&limit=300`))
         ]);
-
         const candles = candlesData.candles || [];
         const events = eventsData.events || [];
         renderChart(symbol, candles, events);
         renderEvents(symbol, events);
-
         const last = candles[candles.length - 1];
         const lastClose = last ? Number(last.close).toFixed(4) : 'n/a';
-        const statsEl = document.getElementById(`stats-${symbol}`);
-        if (statsEl) {
-          statsEl.textContent = `TF ${tf} | candles ${candles.length} | signals ${events.length} | last ${lastClose}`;
-        }
+        const el = document.getElementById(`stats-${symbol}`);
+        if (el) el.textContent = `TF ${tf} | candles ${candles.length} | signals ${events.length} (показано 200) | last ${lastClose}`;
       }
 
       async function refreshAll() {
-        const base = apiBaseInput.value.trim();
-        if (!base) {
-          statusEl.textContent = 'Укажите API Base URL';
-          return;
-        }
-        localStorage.setItem('apiBase', base);
         localStorage.setItem('dashboardTf', timeframeEl.value);
         localStorage.setItem('dashboardRefresh', refreshSecEl.value);
-
         statusEl.textContent = 'Обновление...';
         try {
           const symbolsData = await fetchJson(toUrl('/api/symbols'));
@@ -300,10 +253,8 @@
         timer = setInterval(refreshAll, sec * 1000);
       }
 
-      apiBaseInput.addEventListener('change', () => { refreshAll(); resetTimer(); });
       timeframeEl.addEventListener('change', refreshAll);
       refreshSecEl.addEventListener('change', resetTimer);
-
       refreshAll();
       resetTimer();
     </script>

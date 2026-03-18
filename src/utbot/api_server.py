@@ -84,7 +84,9 @@ class DashboardAPIHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/candles":
                 symbol = qs.get("symbol", [None])[0]
                 timeframe = qs.get("timeframe", ["15m"])[0]
-                limit = int(qs.get("limit", ["300"])[0])
+                req_limit = int(qs.get("limit", ["300"])[0])
+                # BitMart rejects too large kline windows for some TF/ranges.
+                limit = max(1, min(req_limit, 300))
                 if not symbol:
                     self._json({"error": "symbol is required"}, code=400)
                     return
