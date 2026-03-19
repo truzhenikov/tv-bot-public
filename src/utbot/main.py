@@ -135,29 +135,38 @@ def _run_cycle_for_symbol(
 
     htf_bias = last_signal_bias(strategy.evaluate(htf_candles))
     bias_text = htf_bias.value if htf_bias else "UNDEFINED"
-    notifier.send(
-        f"[{symbol_config.symbol}] Направление {symbol_config.htf_timeframe}: {bias_text} "
-        f"(lookback={symbol_config.htf_lookback})"
-    )
+    try:
+        notifier.send(
+            f"[{symbol_config.symbol}] Направление {symbol_config.htf_timeframe}: {bias_text} "
+            f"(lookback={symbol_config.htf_lookback})"
+        )
+    except Exception as exc:
+        print(f"notify_error[{symbol_config.symbol}]: {exc}")
 
     engine = StrategyEngine(config=symbol_config, exchange=exchange, store=store, strategy=strategy)
     result = engine.run(htf_candles=htf_candles, ltf_candles=ltf_candles)
     if not result.events:
-        notifier.send(f"[{symbol_config.symbol}] Событий по последней LTF-свече нет.")
+        try:
+            notifier.send(f"[{symbol_config.symbol}] Событий по последней LTF-свече нет.")
+        except Exception as exc:
+            print(f"notify_error[{symbol_config.symbol}]: {exc}")
     for event in result.events:
         print(event)
-        notifier.send(
-            " | ".join(
-                [
-                    f"{event.symbol} {event.timeframe}",
-                    f"LTF={event.ltf_signal.value if event.ltf_signal else 'NONE'}",
-                    f"HTF={event.htf_bias.value if event.htf_bias else 'NONE'}",
-                    f"ACTION={event.action.value}",
-                    f"REASON={event.action_reason}",
-                    f"TS={event.candle_close_ts_utc.isoformat()}",
-                ]
+        try:
+            notifier.send(
+                " | ".join(
+                    [
+                        f"{event.symbol} {event.timeframe}",
+                        f"LTF={event.ltf_signal.value if event.ltf_signal else 'NONE'}",
+                        f"HTF={event.htf_bias.value if event.htf_bias else 'NONE'}",
+                        f"ACTION={event.action.value}",
+                        f"REASON={event.action_reason}",
+                        f"TS={event.candle_close_ts_utc.isoformat()}",
+                    ]
+                )
             )
-        )
+        except Exception as exc:
+            print(f"notify_error[{symbol_config.symbol}]: {exc}")
     return len(result.events)
 
 
@@ -234,12 +243,19 @@ def run_forever() -> None:
     )
 
     while True:
-        try:
-            for cfg in symbol_configs:
+        had_error = False
+        for cfg in symbol_configs:
+            try:
                 _run_cycle_for_symbol(symbol_config=cfg, exchange=exchange, store=store, strategy=strategy, notifier=notifier)
-        except Exception as exc:
-            now = datetime.now(tz=timezone.utc).isoformat()
-            notifier.send(f"Ошибка цикла: {exc} | {now}")
+            except Exception as exc:
+                had_error = True
+                now = datetime.now(tz=timezone.utc).isoformat()
+                try:
+                    notifier.send(f"[{cfg.symbol}] Ошибка цикла: {exc} | {now}")
+                except Exception:
+                    print(f"cycle_error[{cfg.symbol}]: {exc} | {now}")
+
+        if had_error:
             time.sleep(20)
             continue
 

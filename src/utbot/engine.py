@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import os
 from typing import Iterable, Optional
 
 from .config import BotConfig
@@ -37,9 +38,16 @@ class StrategyEngine:
             return EngineResult(events=[])
 
         events: list[SignalEvent] = []
-        # Live safety: evaluate only the latest closed LTF candle to avoid replaying
-        # historical trades at process startup.
-        for state in ltf_states[-1:]:
+        # Process a short tail of most recent closed candles to avoid missing a signal
+        # when a cycle was delayed (network/API hiccup), while still preventing replay
+        # via store.has_event/upsert uniqueness.
+        try:
+            tail = int(os.getenv('BOT_LTF_CATCHUP_CANDLES', '3'))
+        except Exception:
+            tail = 3
+        if tail < 1:
+            tail = 1
+        for state in ltf_states[-tail:]:
             ltf_signal = _state_signal(state)
             if ltf_signal is None:
                 continue
