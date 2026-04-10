@@ -13,6 +13,9 @@ from .storage import SignalStore
 from .strategy import UTBotStrategy, last_signal_bias
 
 
+_LAST_BIAS_SENT: dict[str, str] = {}
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -135,17 +138,27 @@ def _run_cycle_for_symbol(
 
     htf_bias = last_signal_bias(strategy.evaluate(htf_candles))
     bias_text = htf_bias.value if htf_bias else "UNDEFINED"
-    try:
-        notifier.send(
-            f"[{symbol_config.symbol}] Направление {symbol_config.htf_timeframe}: {bias_text} "
-            f"(lookback={symbol_config.htf_lookback})"
-        )
-    except Exception as exc:
-        print(f"notify_error[{symbol_config.symbol}]: {exc}")
+
+    notify_bias = _env_bool("BOT_NOTIFY_BIAS", False)
+    notify_bias_on_change = _env_bool("BOT_NOTIFY_BIAS_ON_CHANGE", True)
+    if notify_bias:
+        should_send = True
+        if notify_bias_on_change:
+            prev = _LAST_BIAS_SENT.get(symbol_config.symbol)
+            should_send = prev != bias_text
+        if should_send:
+            try:
+                notifier.send(
+                    f"[{symbol_config.symbol}] Направление {symbol_config.htf_timeframe}: {bias_text} "
+                    f"(lookback={symbol_config.htf_lookback})"
+                )
+                _LAST_BIAS_SENT[symbol_config.symbol] = bias_text
+            except Exception as exc:
+                print(f"notify_error[{symbol_config.symbol}]: {exc}")
 
     engine = StrategyEngine(config=symbol_config, exchange=exchange, store=store, strategy=strategy)
     result = engine.run(htf_candles=htf_candles, ltf_candles=ltf_candles)
-    if not result.events:
+    if not result.events and _env_bool("BOT_NOTIFY_NO_EVENTS", False):
         try:
             notifier.send(f"[{symbol_config.symbol}] Событий по последней LTF-свече нет.")
         except Exception as exc:
@@ -180,6 +193,23 @@ def _build_symbol_configs(base: BotConfig) -> list[BotConfig]:
     return out
 
 
+def _startup_position_reconcile(symbol_configs: list[BotConfig], exchange, notifier: Notifier) -> None:
+    if not _env_bool("BOT_RECONCILE_ON_START", True):
+        return
+
+    for cfg in symbol_configs:
+        try:
+            pos = exchange.get_position(cfg.symbol)
+            if pos is None:
+                continue
+            notifier.send(
+                f"[{cfg.symbol}] Reconcile startup: обнаружена открытая позиция "
+                f"{pos.side.value} size={pos.size}. Бот подхватил и будет управлять ею по сигналам."
+            )
+        except Exception as exc:
+            print(f"reconcile_error[{cfg.symbol}]: {exc}")
+
+
 def run_once() -> None:
     base_config = load_config_from_env()
     notifier = make_notifier()
@@ -196,6 +226,8 @@ def run_once() -> None:
 
     for cfg in symbol_configs:
         exchange.get_symbol_meta(cfg.symbol)
+
+    _startup_position_reconcile(symbol_configs=symbol_configs, exchange=exchange, notifier=notifier)
 
     notifier.send(
         "\n".join(
@@ -229,6 +261,8 @@ def run_forever() -> None:
 
     for cfg in symbol_configs:
         exchange.get_symbol_meta(cfg.symbol)
+
+    _startup_position_reconcile(symbol_configs=symbol_configs, exchange=exchange, notifier=notifier)
 
     notifier.send(
         "\n".join(

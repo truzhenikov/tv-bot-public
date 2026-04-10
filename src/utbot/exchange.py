@@ -120,23 +120,36 @@ class BitmartPerpRestAdapter(ExchangeAdapter):
         rows = response.get("data", [])
         if not rows:
             return None
-        row = rows[0]
 
-        amount_raw = row.get("current_amount")
-        if amount_raw in (None, "", "0", "0.0"):
+        # BitMart can return two rows per symbol (long + short side).
+        # Pick the first row that actually has non-zero amount.
+        row_with_pos = None
+        for row in rows:
+            amount_raw = row.get("current_amount")
+            if amount_raw in (None, "", "0", "0.0"):
+                continue
+            try:
+                amount = abs(float(amount_raw))
+            except Exception:
+                continue
+            if amount > 0:
+                row_with_pos = row
+                break
+
+        if row_with_pos is None:
             return None
 
-        amount = abs(float(amount_raw))
+        amount = abs(float(row_with_pos.get("current_amount", 0)))
         if amount == 0:
             return None
 
-        position_type = str(row.get("position_type", ""))
+        position_type = str(row_with_pos.get("position_type", ""))
         if position_type == "1":
             side = Direction.LONG
         elif position_type == "2":
             side = Direction.SHORT
         else:
-            side_value = str(row.get("position_side", "")).lower()
+            side_value = str(row_with_pos.get("position_side", "")).lower()
             if side_value == "long":
                 side = Direction.LONG
             elif side_value == "short":

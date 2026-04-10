@@ -13,6 +13,11 @@ from .storage import SignalStore
 from .strategy import UTBotStrategy
 
 
+# Sticky HTF bias per symbol: when current cycle has no explicit HTF signal in lookback,
+# reuse last known HTF direction instead of dropping to NONE.
+_LAST_HTF_BIAS_BY_SYMBOL: dict[str, Direction] = {}
+
+
 @dataclass(frozen=True)
 class EngineResult:
     events: list[SignalEvent]
@@ -62,6 +67,11 @@ class StrategyEngine:
                 continue
 
             htf_bias = _bias_at(htf_states, state.ts_utc)
+            if htf_bias is not None:
+                _LAST_HTF_BIAS_BY_SYMBOL[self.config.symbol] = htf_bias
+            else:
+                htf_bias = _LAST_HTF_BIAS_BY_SYMBOL.get(self.config.symbol)
+
             action, reason = self._decide_action(htf_bias, ltf_signal)
 
             event = SignalEvent(
@@ -105,12 +115,21 @@ class StrategyEngine:
     def _open_and_verify(self, side: Direction) -> bool:
         retries = self._exec_retries()
         delay = self._verify_delay_sec()
-        for _ in range(retries):
-            self.exchange.place_market_order(self.config.symbol, side, self.config.position_size)
-            time.sleep(delay)
+        for attempt in range(retries):
+            # Safety against duplicate entries: if position already appears on target side,
+            # consider open successful and do not send another market order.
             pos = self.exchange.get_position(self.config.symbol)
             if pos is not None and pos.side == side:
                 return True
+
+            self.exchange.place_market_order(self.config.symbol, side, self.config.position_size)
+            time.sleep(delay)
+
+            pos = self.exchange.get_position(self.config.symbol)
+            if pos is not None and pos.side == side:
+                return True
+
+            # On next retry we re-check position before placing again.
         return False
 
     def _decide_action(self, htf_bias: Optional[Direction], ltf_signal: Direction) -> tuple[ActionType, str]:
